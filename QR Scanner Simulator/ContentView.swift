@@ -9,80 +9,124 @@ import SwiftUI
 
 struct ContentView: View {
     @State private var urlString: String = ""
-    @State private var savedUrls: [String] = UserDefaults.standard.stringArray(forKey: "SavedURLs") ?? []
-    @State private var selectedUrl: String = ""
+    @State private var urlLabel: String = ""
+    @State private var savedUrls: [(label: String, url: String)] = []
     @State private var showingAlert = false
-    @State private var errorMessage = ""
+    @State private var alertTitle = ""
+    @State private var alertMessage = ""
 
     var body: some View {
-        VStack {
-            HStack {
-                Picker("Select URL", selection: $selectedUrl) {
-                    ForEach(savedUrls, id: \.self) { url in
-                        Text(url)
+        NavigationView {
+            VStack {
+                List {
+                    ForEach(savedUrls, id: \.url) { item in
+                        HStack {
+                            Text(item.label)
+                            Spacer()
+                            Text(item.url)
+                                .foregroundColor(.blue)
+                                .onTapGesture {
+                                    simulateScan(url: item.url)
+                                }
+                        }
+                    }
+                    .onDelete(perform: deleteUrl)
+                }
+                
+                VStack(spacing: 10) {
+                    TextField("Enter URL", text: $urlString)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                    
+                    TextField("Enter Label", text: $urlLabel)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+
+                    HStack(spacing: 20) {
+                        Button(action: saveUrl) {
+                            Text("Save URL")
+                                .frame(minWidth: 0, maxWidth: .infinity)
+                                .padding()
+                                .background(Color.green)
+                                .foregroundColor(.white)
+                                .cornerRadius(8)
+                        }
+                        
+                        Button(action: { simulateScan(url: urlString) }) {
+                            Text("Simulate Scan")
+                                .frame(minWidth: 0, maxWidth: .infinity)
+                                .padding()
+                                .background(Color.blue)
+                                .foregroundColor(.white)
+                                .cornerRadius(8)
+                        }
                     }
                 }
-                .onChange(of: selectedUrl) { oldValue, newValue in
-                    urlString = newValue
-                }
-                .pickerStyle(MenuPickerStyle())
-            }
-
-            TextField("Enter URL", text: $urlString)
-                .textFieldStyle(RoundedBorderTextFieldStyle())
                 .padding()
-
-            HStack {
-                Button(action: saveUrl) {
-                    Text("Save URL")
-                        .padding()
-                        .background(Color.green)
-                        .foregroundColor(.white)
-                        .cornerRadius(8)
-                }
-
-                Spacer().frame(width: 10)
-                
-                Button(action: simulateScan) {
-                    Text("Simulate Scan")
-                        .padding()
-                        .background(Color.blue)
-                        .foregroundColor(.white)
-                        .cornerRadius(8)
-                }
             }
-            .padding()
-        }
-        .padding()
-        .alert(isPresented: $showingAlert) {
-            Alert(title: Text("Invalid URL"), message: Text(errorMessage), dismissButton: .default(Text("OK")))
+            .navigationTitle("QR Scanner Simulator")
+            .alert(isPresented: $showingAlert) {
+                Alert(title: Text(alertTitle), message: Text(alertMessage), dismissButton: .default(Text("OK")))
+            }
+            .onAppear(perform: loadSavedUrls)
         }
     }
 
-    func saveUrl() {
-        guard !urlString.isEmpty, URL(string: urlString) != nil else {
-            errorMessage = "Please enter a valid URL to save."
-            showingAlert = true
+    private func loadSavedUrls() {
+        if let savedData = UserDefaults.standard.object(forKey: "SavedURLs") as? [[String: String]] {
+            self.savedUrls = savedData.compactMap { dict in
+                guard let label = dict["label"], let url = dict["url"] else { return nil }
+                return (label: label, url: url)
+            }
+        }
+    }
+
+    private func saveUrl() {
+        guard !urlString.isEmpty, let _ = URL(string: urlString) else {
+            showAlert(title: "Invalid URL", message: "Please enter a valid URL.")
             return
         }
-        if !savedUrls.contains(urlString) {
-            savedUrls.append(urlString)
-            UserDefaults.standard.set(savedUrls, forKey: "SavedURLs")
+
+        guard !urlLabel.isEmpty else {
+            showAlert(title: "Missing Label", message: "Please enter a label for the URL.")
+            return
         }
-        urlString = ""
+
+        if !savedUrls.contains(where: { $0.url == urlString }) {
+            savedUrls.append((label: urlLabel, url: urlString))
+            saveToPersistentStorage()
+            urlString = ""
+            urlLabel = ""
+        } else {
+            showAlert(title: "Duplicate URL", message: "This URL already exists in the list.")
+        }
     }
 
-    func simulateScan() {
-        guard let url = URL(string: urlString), UIApplication.shared.canOpenURL(url) else {
-            errorMessage = "The URL entered is not valid."
-            showingAlert = true
+    private func deleteUrl(at offsets: IndexSet) {
+        savedUrls.remove(atOffsets: offsets)
+        saveToPersistentStorage()
+    }
+
+    private func simulateScan(url: String) {
+        guard let url = URL(string: url), UIApplication.shared.canOpenURL(url) else {
+            showAlert(title: "Invalid URL", message: "The URL is not valid or cannot be opened.")
             return
         }
         UIApplication.shared.open(url)
     }
+
+    private func saveToPersistentStorage() {
+        let savedDicts = savedUrls.map { ["label": $0.label, "url": $0.url] }
+        UserDefaults.standard.set(savedDicts, forKey: "SavedURLs")
+    }
+
+    private func showAlert(title: String, message: String) {
+        alertTitle = title
+        alertMessage = message
+        showingAlert = true
+    }
 }
 
-
-#Preview {
-    ContentView()
+struct ContentView_Previews: PreviewProvider {
+    static var previews: some View {
+        ContentView()
+    }
 }
